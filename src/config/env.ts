@@ -15,11 +15,6 @@ const envSchema = z.object({
   DB_POOL_IDLE_TIMEOUT_MS: z.coerce.number().int().default(30000),
   DB_POOL_CONNECTION_TIMEOUT_MS: z.coerce.number().int().default(5000),
 
-  // Redis
-  REDIS_HOST: z.string().default('localhost'),
-  REDIS_PORT: z.coerce.number().default(6379),
-  REDIS_PASSWORD: z.string().optional(),
-
   // JWT
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_EXPIRES_IN: z.string().default('1d'),
