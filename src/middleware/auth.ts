@@ -1,14 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken, JwtPayload } from '@/utils/jwt';
+import { verifyToken } from '@/utils/jwt';
 import { ApiError } from '@/utils/ApiError';
-
-declare global {
-  namespace Express {
-    interface Request {
-      user?: JwtPayload;
-    }
-  }
-}
 
 /**
  * Verifies the Bearer JWT in Authorization header.
@@ -25,7 +17,13 @@ export function authenticate(
   }
 
   const token = authHeader.split(' ')[1];
-  req.user = verifyToken(token);
+  const payload = verifyToken(token);
+
+  if (payload.type === 'refresh') {
+    throw ApiError.unauthorized('Refresh token cannot be used as access token');
+  }
+
+  req.user = payload;
   next();
 }
 
