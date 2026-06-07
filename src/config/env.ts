@@ -8,17 +8,12 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   API_VERSION: z.string().default('v1'),
 
-  // PostgreSQL
-  DB_HOST: z.string(),
-  DB_PORT: z.coerce.number().default(5432),
-  DB_NAME: z.string(),
-  DB_USER: z.string(),
-  DB_PASSWORD: z.string(),
-  DB_SSL: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
-  DB_POOL_MAX: z.coerce.number().default(10),
+  // Database — Supabase
+  DATABASE_URL: z.string().url('DATABASE_URL must be a valid URL'),
+  DATABASE_DIRECT_URL: z.string().url('DATABASE_DIRECT_URL must be a valid URL'),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
+  DB_POOL_IDLE_TIMEOUT_MS: z.coerce.number().int().default(30000),
+  DB_POOL_CONNECTION_TIMEOUT_MS: z.coerce.number().int().default(5000),
 
   // Redis
   REDIS_HOST: z.string().default('localhost'),

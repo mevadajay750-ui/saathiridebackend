@@ -1,12 +1,22 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { pool } from '@/config/database';
+import { Pool } from 'pg';
+import { env } from '@/config/env';
 import { logger } from '@/utils/logger';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+
+// Migrations must use the direct/session connection (port 5432), not the
+// transaction pooler (port 6543) — pgBouncer does not support DDL.
+const pool = new Pool({
+  connectionString: env.DATABASE_DIRECT_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+});
 
 async function migrate(): Promise<void> {
   const client = await pool.connect();
@@ -24,7 +34,7 @@ async function migrate(): Promise<void> {
     const { rows: applied } = await client.query(
       'SELECT filename FROM schema_migrations ORDER BY filename',
     );
-    const appliedSet = new Set(applied.map((r: any) => r.filename));
+    const appliedSet = new Set(applied.map((r: { filename: string }) => r.filename));
 
     // Read migration files sorted alphabetically
     const files = fs

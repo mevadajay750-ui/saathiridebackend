@@ -1,7 +1,7 @@
 import 'module-alias/register';
 import { createApp } from '@/app';
 import { env } from '@/config/env';
-import { testConnection } from '@/config/database';
+import { testConnection } from '@/infrastructure/database';
 import { connectRedis } from '@/config/redis';
 import { initFirebase } from '@/config/firebase';
 import { logger } from '@/utils/logger';
@@ -26,7 +26,7 @@ async function bootstrap(): Promise<void> {
       });
     });
   } catch (err: any) {
-    logger.error('Failed to start server', { error: err.message });
+    logger.error('❌ Failed to start server', { error: err.message });
     process.exit(1);
   }
 }
