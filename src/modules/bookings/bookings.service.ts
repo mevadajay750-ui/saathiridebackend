@@ -1,4 +1,11 @@
 import { query, transaction } from '@/infrastructure/database';
+import {
+  sendToUser,
+  buildBookingRequestedNotification,
+  buildBookingAcceptedNotification,
+  buildBookingDeclinedNotification,
+  buildBookingCancelledByPassengerNotification,
+} from '@/modules/notifications/notifications.service';
 import { ApiError } from '@/utils/ApiError';
 import { logger } from '@/utils/logger';
 import type { RequestBookingInput } from './bookings.schema';
@@ -87,7 +94,7 @@ export async function requestBooking(
   passengerId: string,
   input: RequestBookingInput,
 ): Promise<FormattedBooking> {
-  return transaction(async (client) => {
+  const formatted = await transaction(async (client) => {
     const rideResult = await client.query<DbRide>(
       `SELECT * FROM rides WHERE id = $1 FOR UPDATE`,
       [input.ride_id],
@@ -146,8 +153,20 @@ export async function requestBooking(
       seats:       input.seats,
     });
 
-    return formatBooking(booking, ride);
+    return { formatted: formatBooking(booking, ride), ride, booking };
   });
+
+  sendToUser(
+    formatted.ride.driver_id,
+    buildBookingRequestedNotification(
+      formatted.ride.origin_city,
+      formatted.ride.destination_city,
+      formatted.ride.id,
+      formatted.booking.id,
+    ),
+  ).catch(() => {});
+
+  return formatted.formatted;
 }
 
 export async function getMyBookings(passengerId: string): Promise<FormattedBooking[]> {
@@ -253,7 +272,7 @@ export async function acceptBooking(
   bookingId: string,
   driverId: string,
 ): Promise<FormattedBooking> {
-  return transaction(async (client) => {
+  const result = await transaction(async (client) => {
     const bookingResult = await client.query<DbBooking>(
       `SELECT * FROM bookings WHERE id = $1`,
       [bookingId],
@@ -316,15 +335,31 @@ export async function acceptBooking(
       seatsRemaining: updatedRide.rows[0].available_seats,
     });
 
-    return formatBooking(updatedBooking.rows[0], updatedRide.rows[0]);
+    return {
+      formatted: formatBooking(updatedBooking.rows[0], updatedRide.rows[0]),
+      passengerId: booking.passenger_id,
+      ride: updatedRide.rows[0],
+    };
   });
+
+  sendToUser(
+    result.passengerId,
+    buildBookingAcceptedNotification(
+      result.ride.origin_city,
+      result.ride.destination_city,
+      result.ride.id,
+      bookingId,
+    ),
+  ).catch(() => {});
+
+  return result.formatted;
 }
 
 export async function declineBooking(
   bookingId: string,
   driverId: string,
 ): Promise<void> {
-  await transaction(async (client) => {
+  const booking = await transaction(async (client) => {
     const bookingResult = await client.query<DbBooking>(
       `SELECT * FROM bookings WHERE id = $1`,
       [bookingId],
@@ -334,17 +369,17 @@ export async function declineBooking(
       throw ApiError.notFound('Booking not found');
     }
 
-    const booking = bookingResult.rows[0];
+    const b = bookingResult.rows[0];
 
-    if (booking.status !== 'pending') {
+    if (b.status !== 'pending') {
       throw ApiError.badRequest(
-        `Cannot decline a booking with status '${booking.status}'`,
+        `Cannot decline a booking with status '${b.status}'`,
       );
     }
 
     const rideResult = await client.query<{ driver_id: string }>(
       `SELECT driver_id FROM rides WHERE id = $1`,
-      [booking.ride_id],
+      [b.ride_id],
     );
 
     if (rideResult.rows[0].driver_id !== driverId) {
@@ -359,14 +394,31 @@ export async function declineBooking(
     );
 
     logger.info('Booking declined', { bookingId, driverId });
+
+    return b;
   });
+
+  const rideForNotif = await query<{ origin_city: string; destination_city: string }>(
+    `SELECT origin_city, destination_city FROM rides WHERE id = $1`,
+    [booking.ride_id],
+  );
+  if (rideForNotif.rowCount! > 0) {
+    sendToUser(
+      booking.passenger_id,
+      buildBookingDeclinedNotification(
+        rideForNotif.rows[0].origin_city,
+        rideForNotif.rows[0].destination_city,
+        booking.ride_id,
+      ),
+    ).catch(() => {});
+  }
 }
 
 export async function cancelBooking(
   bookingId: string,
   passengerId: string,
 ): Promise<void> {
-  await transaction(async (client) => {
+  const booking = await transaction(async (client) => {
     const bookingResult = await client.query<DbBooking>(
       `SELECT * FROM bookings WHERE id = $1`,
       [bookingId],
@@ -376,15 +428,15 @@ export async function cancelBooking(
       throw ApiError.notFound('Booking not found');
     }
 
-    const booking = bookingResult.rows[0];
+    const b = bookingResult.rows[0];
 
-    if (booking.passenger_id !== passengerId) {
+    if (b.passenger_id !== passengerId) {
       throw ApiError.forbidden('You can only cancel your own bookings');
     }
 
-    if (!['pending', 'confirmed'].includes(booking.status)) {
+    if (!['pending', 'confirmed'].includes(b.status)) {
       throw ApiError.badRequest(
-        `Cannot cancel a booking with status '${booking.status}'`,
+        `Cannot cancel a booking with status '${b.status}'`,
       );
     }
 
@@ -395,22 +447,46 @@ export async function cancelBooking(
       [bookingId],
     );
 
-    if (booking.status === 'confirmed') {
+    if (b.status === 'confirmed') {
       await client.query(
         `UPDATE rides
          SET available_seats = available_seats + $1, updated_at = NOW()
          WHERE id = $2`,
-        [booking.seats, booking.ride_id],
+        [b.seats, b.ride_id],
       );
 
       logger.info('Confirmed booking cancelled — seats restored', {
         bookingId,
         passengerId,
-        seatsRestored: booking.seats,
-        rideId:        booking.ride_id,
+        seatsRestored: b.seats,
+        rideId:        b.ride_id,
       });
     } else {
       logger.info('Pending booking cancelled', { bookingId, passengerId });
     }
+
+    return b;
   });
+
+  if (booking.status === 'confirmed') {
+    const [passengerResult, rideResult] = await Promise.all([
+      query<{ name: string | null }>(`SELECT name FROM users WHERE id = $1`, [passengerId]),
+      query<{ driver_id: string; origin_city: string; destination_city: string }>(
+        `SELECT driver_id, origin_city, destination_city FROM rides WHERE id = $1`,
+        [booking.ride_id],
+      ),
+    ]);
+    if (rideResult.rowCount! > 0) {
+      const r = rideResult.rows[0];
+      sendToUser(
+        r.driver_id,
+        buildBookingCancelledByPassengerNotification(
+          passengerResult.rows[0]?.name ?? null,
+          r.origin_city,
+          r.destination_city,
+          booking.ride_id,
+        ),
+      ).catch(() => {});
+    }
+  }
 }

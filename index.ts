@@ -3,6 +3,7 @@ import { createApp } from '@/app';
 import { env } from '@/config/env';
 import { testConnection } from '@/infrastructure/database';
 import { initFirebase } from '@/config/firebase';
+import { registerJobs } from '@/jobs';
 import { logger } from '@/utils/logger';
 
 async function bootstrap(): Promise<void> {
@@ -10,6 +11,7 @@ async function bootstrap(): Promise<void> {
     // Initialise infrastructure
     await testConnection();
     initFirebase();
+    registerJobs();
 
     // Start server
     const app = createApp();

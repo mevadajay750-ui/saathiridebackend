@@ -1,4 +1,8 @@
 import { query, transaction } from '@/infrastructure/database';
+import {
+  sendToMany,
+  buildRideCancelledNotification,
+} from '@/modules/notifications/notifications.service';
 import { ApiError } from '@/utils/ApiError';
 import { logger } from '@/utils/logger';
 import type { PostRideInput, SearchRidesQuery } from './rides.schema';
@@ -344,6 +348,10 @@ export async function cancelRide(
   rideId: string,
   driverId: string,
 ): Promise<void> {
+  let passengerIds: string[] = [];
+  let originCity = '';
+  let destinationCity = '';
+
   await transaction(async (client) => {
     const rideResult = await client.query<DbRide>(
       `SELECT * FROM rides WHERE id = $1`,
@@ -386,13 +394,17 @@ export async function cancelRide(
       [rideId],
     );
 
-    const cancelledBookings = await client.query<{ id: string }>(
+    const cancelledBookings = await client.query<{ passenger_id: string }>(
       `UPDATE bookings
        SET status = 'cancelled', updated_at = NOW()
        WHERE ride_id = $1 AND status = 'pending'
-       RETURNING id`,
+       RETURNING passenger_id`,
       [rideId],
     );
+
+    passengerIds = cancelledBookings.rows.map((b) => b.passenger_id);
+    originCity = ride.origin_city;
+    destinationCity = ride.destination_city;
 
     logger.info('Ride cancelled', {
       rideId,
@@ -400,4 +412,11 @@ export async function cancelRide(
       pendingBookingsCancelled: cancelledBookings.rowCount,
     });
   });
+
+  if (passengerIds.length > 0) {
+    sendToMany(
+      passengerIds,
+      buildRideCancelledNotification(originCity, destinationCity, rideId),
+    ).catch(() => {});
+  }
 }
