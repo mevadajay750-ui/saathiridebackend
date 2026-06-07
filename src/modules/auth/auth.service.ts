@@ -9,8 +9,9 @@ interface DbUser {
   id: string;
   phone: string;
   name: string | null;
-  photo_url: string | null;
-  role: 'driver' | 'passenger';
+  avatar_url: string | null;
+  role: 'driver' | 'passenger' | 'both';
+  is_active: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -20,7 +21,7 @@ interface FormattedUser {
   phone: string;
   name: string | null;
   avatarUrl: string | null;
-  role: 'driver' | 'passenger';
+  role: 'driver' | 'passenger' | 'both';
   isActive: boolean;
   createdAt: Date;
 }
@@ -48,9 +49,9 @@ function formatUser(user: DbUser): FormattedUser {
     id: user.id,
     phone: user.phone,
     name: user.name,
-    avatarUrl: user.photo_url,
+    avatarUrl: user.avatar_url,
     role: user.role,
-    isActive: true,
+    isActive: user.is_active,
     createdAt: user.created_at,
   };
 }

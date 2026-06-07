@@ -4,6 +4,7 @@ export const INDIA_PHONE_PREFIX = '+91';
 export const UserRole = {
   DRIVER: 'driver',
   PASSENGER: 'passenger',
+  BOTH: 'both',
 } as const;
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
