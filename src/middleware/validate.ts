@@ -21,7 +21,19 @@ export function validate(
       throw ApiError.badRequest(firstError, 'VALIDATION_ERROR');
     }
     // Replace with parsed data (strips unknown fields, applies defaults)
-    (req as any)[target] = result.data;
+    if (target === 'body') {
+      req.body = result.data;
+    } else if (target === 'query') {
+      // Express 5 exposes query as read-only; replace via defineProperty
+      Object.defineProperty(req, 'query', {
+        value: result.data,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    } else {
+      Object.assign(req.params, result.data);
+    }
     next();
   };
 }
