@@ -2,7 +2,10 @@ import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import swaggerUi from 'swagger-ui-express';
+import swaggerJsdoc from 'swagger-jsdoc';
 import { env } from '@/config/env';
+import { swaggerOptions } from '@/docs/swagger';
 import { requestLogger } from '@/middleware/requestLogger';
 import { errorHandler } from '@/middleware/errorHandler';
 import { apiLimiter } from '@/middleware/rateLimiter';
@@ -36,6 +39,41 @@ export function createApp(): Application {
 
   // ── Logging ────────────────────────────────────────────────────────────
   app.use(requestLogger);
+
+  // ── Swagger Docs (dev + staging only) ─────────────────────────────────────
+  if (env.NODE_ENV !== 'production') {
+    const swaggerSpec = swaggerJsdoc(swaggerOptions);
+
+    app.use(
+      '/api-docs',
+      swaggerUi.serve,
+      swaggerUi.setup(swaggerSpec, {
+        customSiteTitle: 'SaathiRide API Docs',
+        customCss: `
+        .swagger-ui .topbar { background-color: #4B3CC7; }
+        .swagger-ui .topbar .download-url-wrapper { display: none; }
+        .swagger-ui .info .title { color: #4B3CC7; }
+      `,
+        swaggerOptions: {
+          persistAuthorization: true,
+          displayRequestDuration: true,
+          defaultModelsExpandDepth: 2,
+          defaultModelExpandDepth: 2,
+          docExpansion: 'none',
+          filter: true,
+          tagsSorter: 'alpha',
+        },
+      }),
+    );
+
+    app.get('/api-docs.json', (_req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.send(swaggerSpec);
+    });
+
+    console.log(`📚 Swagger UI: http://localhost:${env.PORT}/api-docs`);
+    console.log(`📄 OpenAPI JSON: http://localhost:${env.PORT}/api-docs.json`);
+  }
 
   // ── Rate limiting ──────────────────────────────────────────────────────
   app.use(`/api/${env.API_VERSION}`, apiLimiter);
